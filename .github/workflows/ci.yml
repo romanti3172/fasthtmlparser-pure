@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
         python: ["3.10", "3.14"]
         include:
           - os: ubuntu-latest
@@ -25,6 +25,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - run: python -m pytest -q
+
+  # GitHub is often short of macOS runners ("capacity constraints": a job may wait in the queue until it is dropped),
+  # so macOS runs as a job of its own that a release does not wait for.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
       - run: pip install pytest
       - run: python -m pytest -q
 
