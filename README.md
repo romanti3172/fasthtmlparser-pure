@@ -102,7 +102,7 @@ what z3l.FastHtmlParser (.NET) gives. `tests/test_api.py` is the test suite of t
 
 ## Benchmarks
 
-`python bench/bench.py` (Python 3.14, AMD Ryzen 7 3800X, Windows; [`bench-results.md`](bench-results.md)). Every
+`python bench/bench.py` (Python 3.14, AMD Ryzen 7 3800X, Windows; [`bench-results.md`](https://github.com/romanti3172/fasthtmlparser-pure/blob/main/bench-results.md)). Every
 library must extract the same records before anything is timed. The first two columns are pure Python; the others are
 C or Rust, for reference.
 
