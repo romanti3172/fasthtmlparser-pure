@@ -1,6 +1,7 @@
 # fasthtmlparser-pure
 
 [![CI](https://github.com/romanti3172/fasthtmlparser-pure/actions/workflows/ci.yml/badge.svg)](https://github.com/romanti3172/fasthtmlparser-pure/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/fasthtmlparser-pure.svg)](https://pypi.org/project/fasthtmlparser-pure/)
 
 A fast HTML / XML parser for scraping, with **XPath 1.0** and **CSS selectors**, in **pure Python**: a port of
 [z3l.FastHtmlParser](https://github.com/romanti3172/z3l.FastHtmlParser) with no compiled code and no dependencies. It
