@@ -17,7 +17,7 @@ platforms without wheels, vendoring a single folder.
 pip install fasthtmlparser-pure
 ```
 
-Python 3.9 or later, CPython or PyPy; no dependencies.
+Python 3.10 or later, CPython or PyPy; no dependencies.
 
 ```python
 import fasthtmlparser_pure as fh
