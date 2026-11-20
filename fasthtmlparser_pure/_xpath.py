@@ -43,6 +43,9 @@ E_ATTR_EXISTS = 9  # name: [@name]
 E_PATH = 10  # start (expr or None), absolute, steps; attr: a bare @name
 E_FILTER = 11  # primary, preds
 E_FUNCTION = 12  # fn, args
+# fn, l (prefix), name, r (suffix), value (needle): contains/starts-with/ends-with(concat(l, @name, r), value),
+# tested on the attribute in place (prefix and suffix may be empty)
+E_ATTR_TEST = 13
 
 OP_EQ = 0
 OP_NEQ = 1
@@ -630,7 +633,24 @@ class _Compiler:
         if fn in ("count", "sum", "name", "local-name") and args and args[0].type != TYPE_NODE_SET:
             self.fail_at(f"{fn}() needs a node-set argument", t.p)
         pos = fn == "position" or fn == "last" or any(a.pos for a in args)
-        return Expr(E_FUNCTION, info[2], pos, fn=fn, args=args)
+        return self.make_attribute_test(fn, args) or Expr(E_FUNCTION, info[2], pos, fn=fn, args=args)
+
+    def make_attribute_test(self, fn, args):
+        """contains(@a, 'x'), starts-with(...), ends-with(...), also with the attribute wrapped in literals
+        (contains(concat(' ', @class, ' '), ' x '), the usual class test), are evaluated on the attribute in place,
+        without a node-set for every element. None: a plain function call."""
+        if fn not in ("contains", "starts-with", "ends-with") or args[1].op != E_LITERAL:
+            return None
+        arg = args[0]
+        name = self.attribute_name(arg)
+        if name is not None:
+            return Expr(E_ATTR_TEST, TYPE_BOOLEAN, False, fn=fn, l="", name=name, r="", value=args[1].value)
+        if arg.op == E_FUNCTION and arg.fn == "concat" and len(arg.args) == 3 and arg.args[0].op == E_LITERAL                 and arg.args[2].op == E_LITERAL:
+            name = self.attribute_name(arg.args[1])
+            if name is not None:
+                return Expr(E_ATTR_TEST, TYPE_BOOLEAN, False, fn=fn, l=arg.args[0].value, name=name,
+                            r=arg.args[2].value, value=args[1].value)
+        return None
 
 
 def _ascii_lower(s):
@@ -1101,6 +1121,18 @@ class Evaluator:
             return raw is not None and at.attr_equals(raw, e.value) != e.negate
         if op == E_ATTR_EXISTS:
             return self.attribute_of(node, e.name) is not None
+        if op == E_ATTR_TEST:
+            # a missing attribute is an empty node-set, whose string-value is ""
+            raw = self.attribute_of(node, e.name) or ""
+            if dec.needs_decoding(raw):
+                raw = dec.decode(raw, True)
+            value = e.l + raw + e.r if e.l or e.r else raw
+            fn = e.fn
+            if fn == "contains":
+                return e.value in value
+            if fn == "starts-with":
+                return value.startswith(e.value)
+            return value.endswith(e.value)
         return _to_boolean(self.eval_expr(e, node, position, size))
 
     def eval_predicate(self, e, node, position, size):
@@ -1116,7 +1148,7 @@ class Evaluator:
         op = e.op
         if op == E_LITERAL or op == E_NUMBER:
             return e.value
-        if op in (E_AND, E_OR, E_COMPARE, E_ATTR_EQUALS, E_ATTR_EXISTS):
+        if op in (E_AND, E_OR, E_COMPARE, E_ATTR_EQUALS, E_ATTR_EXISTS, E_ATTR_TEST):
             return self.eval_bool(e, node, position, size)
         if op == E_ARITH:
             x = self.eval_number(e.l, node, position, size)
