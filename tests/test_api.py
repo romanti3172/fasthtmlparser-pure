@@ -101,7 +101,7 @@ def test_errors(doc):
         doc.css("a[")
     with pytest.raises(fh.CssSelectorError):
         fh.CssQuery("::before")
-    with pytest.raises(fh.XPathError):
+    with pytest.raises(fh.XPathError, match="unexpected end of the expression"):
         doc.xpath("//a[")
     with pytest.raises(fh.XPathError, match="xpath_value"):
         doc.xpath("count(//a)")

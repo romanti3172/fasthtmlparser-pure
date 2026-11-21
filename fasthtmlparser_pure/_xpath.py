@@ -525,6 +525,8 @@ class _Compiler:
             steps = self.parse_relative_steps(steps, True)
         else:
             if not self.can_start_step(self.peek(0)):
+                if self.peek(0).k == T_END:
+                    self.fail("unexpected end of the expression")
                 self.fail(f"unexpected {self.describe(self.peek(0))}")
             steps = self.parse_relative_steps(steps, False)
         path = Expr(E_PATH, TYPE_NODE_SET, False, start=None, absolute=absolute, steps=self.optimize(steps))
