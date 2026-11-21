@@ -4,7 +4,7 @@ with the visible line structure kept (Node.text_line_breaks)."""
 import re
 
 from . import _decode as dec
-from ._chars import ASCII_SPACE, HAS_SPACE, SPACE_RUNS, ascii_lower
+from ._chars import ASCII_SPACE, HAS_SPACE, SPACE, SPACE_RUNS, ascii_lower
 from ._parser import KEYS, NAMES, find_comment_end, find_raw_text_end, lookup_tag
 
 INVISIBLE = {
@@ -59,8 +59,24 @@ def invisible_content_end(s, start, to):
     return end
 
 
+# names of the tags that separate words in the one-line text (as jsoup's text()): <br>, blocks, p/h1-h6, cells; the
+# same tags as the line breaks of text_line_breaks (KINDS below)
+SEPARATOR_NAME = re.compile(r"</?([a-zA-Z0-9]+)")
+
+
+def separates_words(s, i):
+    """Whether the markup at s[i] ('<') is a tag that separates words in the one-line text: <br>, a block element or a
+    table cell, opening or closing. Comments, declarations, inline and unknown tags do not."""
+    m = SEPARATOR_NAME.match(s, i)
+    if m is None:
+        return False
+    key = lookup_tag(m.group(1))
+    return key is not None and key >= 0 and KINDS[key] in (BREAK_LINE, BREAK_PARAGRAPH, BREAK_SPACE)
+
+
 def text_runs(s):
-    """The text runs of s with tags, comments and invisible content removed, whitespace not yet collapsed."""
+    """The text runs of s with tags, comments and invisible content removed, whitespace not yet collapsed; a ' ' for
+    each tag that separates words (collapsed with the whitespace around it)."""
     search = MARKUP.search
     m = search(s)
     if m is None:
@@ -74,6 +90,8 @@ def text_runs(s):
         last = skip_markup(s, lt)
         if last < 0:
             return "".join(out)  # an unterminated tag: the rest is markup
+        if separates_words(s, lt):
+            out.append(" ")
         start = last + 1
         m = search(s, start)
     if start < len(s):
@@ -93,11 +111,60 @@ def collapse(s):
     return t if a == 0 and z == len(t) else t[a:z]
 
 
-def clear_tags(s):
-    """The visible text of an HTML fragment."""
+PRE_NAMES = ("pre", "listing", "plaintext")
+PRE_NAME = re.compile(r"<(/?)([a-zA-Z]+)")
+
+
+def pre_tag(s, i):
+    """+1 for an opening pre, listing or plaintext at s[i], -1 for a closing one, 0 otherwise."""
+    m = PRE_NAME.match(s, i)
+    if m is None or ascii_lower(m.group(2)) not in PRE_NAMES:
+        return 0
+    return -1 if m.group(1) else 1
+
+
+def strip_tags_pre(s, in_pre):
+    """The one-line text of s where <pre> keeps its whitespace (in_pre: s itself is in one); the rare, slow way."""
+    out = []
+    prev_space = True  # left trim
+    depth = 1 if in_pre else 0
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == "<" and MARKUP.match(s, i):
+            last = skip_markup(s, i)
+            if last < 0:
+                break
+            if not in_pre:
+                depth = max(0, depth + pre_tag(s, i))
+            if not prev_space and separates_words(s, i):
+                out.append(" ")
+                prev_space = True
+            i = last + 1
+            continue
+        if c in SPACE:
+            if depth > 0:
+                if out:  # as written, but not at the start
+                    out.append(c)
+            elif not prev_space:
+                out.append(" ")
+            prev_space = True
+        else:
+            out.append(c)
+            prev_space = False
+        i += 1
+    return "".join(out).rstrip(SPACE)
+
+
+def clear_tags(s, in_pre=False):
+    """The visible text of an HTML fragment in one line, as jsoup's text(): <br>, blocks and table cells separate
+    words, inline tags do not, whitespace collapsed; inside <pre> whitespace is kept."""
     if not s:
         return ""
-    text = collapse(text_runs(s))
+    if in_pre or "<" in s and PRE_NAME.search(s) and any(ascii_lower(m.group(2)) in PRE_NAMES for m in PRE_NAME.finditer(s)):
+        text = strip_tags_pre(s, in_pre)
+    else:
+        text = collapse(text_runs(s))
     return dec.decode(text, False) if "&" in text else text
 
 
@@ -105,6 +172,9 @@ def text_equals(value, expected, d, i):
     """Whether the visible text of the body (value) of the tag i equals expected."""
     if not value or not expected:
         return False
+    # <pre> keeps its whitespace and raw text is as written in text: compare with the text itself
+    if d.has_pre() or d.is_raw_text_at(i):
+        return d.text_of(i) == expected
     # whitespace is collapsed even where text keeps it (a tag without children), as the .NET version compares
     text = collapse(text_runs(value))
     amp = text.find("&")

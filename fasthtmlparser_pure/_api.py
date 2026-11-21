@@ -15,6 +15,10 @@ from ._xpath import XPathError, XPathMatcher
 
 INF = float("inf")
 TEXT_SPECIAL = re.compile(r"[<&\r]")
+# whitespace to collapse in trimmed text: a line break, tab or other space than ' ', or a space before more whitespace
+NEEDS_COLLAPSE = re.compile("[" + re.escape(SPACE.replace(" ", "")) + "]| [" + re.escape(SPACE) + "]")
+# pre, listing, plaintext: their text keeps its whitespace
+_PRE_KEYS = (NAMES.index("pre"), NAMES.index("listing"), NAMES.index("plaintext"))
 
 # ----- query caches: the string methods compile a query once -----
 
@@ -91,7 +95,7 @@ class Document:
     """
 
     __slots__ = ("src", "_url", "keys", "customs", "parents", "depths", "starts", "ends", "inner_starts",
-                 "inner_ends", "lower_tags", "_tree", "_base", "_base_parsed", "_offsets", "__weakref__")
+                 "inner_ends", "lower_tags", "_tree", "_base", "_base_parsed", "_offsets", "_has_pre", "__weakref__")
 
     def __init__(self, html, url=None):
         src = _source_text(html)
@@ -108,6 +112,7 @@ class Document:
         self._base = None
         self._base_parsed = False
         self._offsets = None
+        self._has_pre = None  # whether the page has a pre, listing or plaintext (see has_pre)
 
     # ----- internals shared by the query engines -----
 
@@ -141,14 +146,48 @@ class Document:
         return self.src[start:end + 1].strip(SPACE)
 
     def text_of(self, i):
+        """The visible text in one line, as jsoup's text(): <br>, block elements and table cells separate words, inline
+        tags do not, whitespace and line breaks collapse to one space; inside <pre> whitespace is kept; script, style,
+        textarea, title, ... are their content as written."""
         body = self.body_of(i)
-        # no tags, references or CR: the body is the text
-        if TEXT_SPECIAL.search(body) is None:
+        # no tags, references, CR or whitespace to collapse: the body is the text
+        if TEXT_SPECIAL.search(body) is None and NEEDS_COLLAPSE.search(body) is None:
             return body
-        # No child tags and no '<' at all: the body is the text, except in script, style, textarea, title, ...
-        if not self.has_children_at(i) and ("<" not in body or is_raw_text(self.keys[i])):
+        leaf = not self.has_children_at(i)
+        # script, style, textarea, title, ... without child tags: their content is text as written
+        if leaf and is_raw_text(self.keys[i]):
             return dec.decode(body, False) if "&" in body or "\r" in body else body
-        return _text.clear_tags(body)
+        plain = leaf and "<" not in body
+        if plain and NEEDS_COLLAPSE.search(body) is None:
+            return dec.decode(body, False) if "&" in body or "\r" in body else body
+        # <pre> and what is in it keep their whitespace (looked up only when there is whitespace to keep)
+        in_pre = self.in_pre_at(i)
+        if plain and in_pre:
+            return dec.decode(body, False) if "&" in body or "\r" in body else body
+        return _text.clear_tags(body, in_pre)
+
+    def is_raw_text_at(self, i):
+        return not self.has_children_at(i) and is_raw_text(self.keys[i])
+
+    def has_pre(self):
+        """Whether the page has a pre, listing or plaintext, looked up once: most pages have none, and then text_of
+        does not look for one around each tag."""
+        v = self._has_pre
+        if v is None:
+            keys = set(self.keys)
+            v = self._has_pre = any(k in keys for k in _PRE_KEYS)
+        return v
+
+    def in_pre_at(self, i):
+        """Whether the tag i is pre, listing or plaintext, or inside one."""
+        if not self.has_pre():
+            return False
+        keys, parents = self.keys, self.parents
+        while i >= 0:
+            if keys[i] in _PRE_KEYS:
+                return True
+            i = parents[i]
+        return False
 
     def has_children_at(self, i):
         return i + 1 < len(self.starts) and self.starts[i + 1] < self.ends[i]
