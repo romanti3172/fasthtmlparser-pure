@@ -325,7 +325,8 @@ class _Parser:
                         if key is None and len(name) <= 32:
                             key = get_key(ascii_lower(name))
                         if key is not None:
-                            flags = 0 if xml else flags_of[key]
+                            # in XML only "?xml" is void here ('!' never takes this path)
+                            flags = (F_VOID if c == "?" else 0) if xml else flags_of[key]
                             if (flags & F_RULE == 0 or stack_top == 0 or keys[stack[stack_top - 1]] < 0
                                     or not rules_of[key].t[keys[stack[stack_top - 1]]]) \
                                     and (open_p == 0 or flags & F_CLOSES_P == 0):
@@ -707,8 +708,11 @@ class _Parser:
             depth = self.depths[parent] + 1
 
         index = self.count
-        # Void elements (<br>, <img>, <meta>, ...) and declarations never contain anything.
-        is_void = flags & F_VOID != 0
+        # Void elements (<br>, <img>, <meta>, ...) never contain anything. Neither does markup named "!..." or "?..."
+        # (<!doctype>, <?xml ...?>, <?php ...?>, <![if IE]>), in HTML and in XML alike: a bogus comment in a browser,
+        # a declaration or processing instruction in XML. first is a letter, '!' or '?', and '!' and '?' sort before
+        # the letters: one compare.
+        is_void = first <= "?" or flags & F_VOID != 0
         self_closing = is_void
         if not self_closing:
             if last == "/":
